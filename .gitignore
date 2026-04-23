@@ -1,0 +1,12 @@
+smartmail
+smartmail.yaml
+smartmail.yml
+smartmail.state.json
+smartmail.audit.log
+smartmail.pid
+smartmail.log
+*.exe
+
+.DS_Store
+.idea/
+.vscode/
