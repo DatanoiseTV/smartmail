@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,12 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
 // webui serves a small single-page dashboard to inspect state, browse the
 // audit log, edit the config, and trigger ad-hoc runs. Single-user,
-// HTTP-basic-auth gated by a SHA-256 hash of a configured password.
+// HTTP-basic-auth gated by a bcrypt hash of a configured password.
 
 func cmdWebUI(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("webui", flag.ContinueOnError)
@@ -47,7 +46,11 @@ func cmdWebUI(ctx context.Context, args []string) error {
 		return fmt.Errorf("set a password via --pass or SMARTMAIL_WEB_PASS — refusing to serve an unauthenticated UI")
 	}
 
-	srv := &webServer{cfg: cfg, cfgPath: cfgPath, user: u, passHash: sha(p)}
+	hash, err := bcrypt.GenerateFromPassword([]byte(p), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hashing password: %w", err)
+	}
+	srv := &webServer{cfg: cfg, cfgPath: cfgPath, user: u, passHash: hash}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.auth(srv.index))
 	mux.HandleFunc("/api/status", srv.auth(srv.apiStatus))
@@ -80,7 +83,7 @@ type webServer struct {
 	cfg      *Config
 	cfgPath  string
 	user     string
-	passHash string
+	passHash []byte
 
 	mu       sync.Mutex
 	running  bool
@@ -88,17 +91,12 @@ type webServer struct {
 	lastStat ProcessStats
 }
 
-func sha(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:])
-}
-
 func (w *webServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok ||
-			subtle.ConstantTimeCompare([]byte(u), []byte(w.user)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(sha(p)), []byte(w.passHash)) != 1 {
+		userMatch := ok && subtle.ConstantTimeCompare([]byte(u), []byte(w.user)) == 1
+		passMatch := userMatch && bcrypt.CompareHashAndPassword(w.passHash, []byte(p)) == nil
+		if !passMatch {
 			rw.Header().Set("WWW-Authenticate", `Basic realm="smartmail"`)
 			http.Error(rw, "unauthorized", http.StatusUnauthorized)
 			return
