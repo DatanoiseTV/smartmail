@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.5
 	github.com/emersion/go-message v0.18.2
+	golang.org/x/crypto v0.23.0
 	golang.org/x/term v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 )
